@@ -1,12 +1,16 @@
 import React, { useState } from 'react';
+import { useForm, Controller } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
 import { Button } from '@/components/ui/button';
-import { Head, useForm } from '@inertiajs/react';
-import { CloneFormData, CloneIndexProps, CloneOption, Status, Step } from '@/types/clone';
+import { Head } from '@inertiajs/react';
+import { CloneIndexProps, CloneOption, Status, Step } from '@/types/clone';
 import AppLayout from '@/layouts/app-layout';
 import { BreadcrumbItem } from '@/types';
 import clone from '@/routes/clone';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
+import { toast } from 'sonner';
 
 const breadcrumbs: BreadcrumbItem[] = [
     {
@@ -15,33 +19,129 @@ const breadcrumbs: BreadcrumbItem[] = [
     },
 ];
 
+// Validation schema
+const cloneSchema = z.object({
+    sourcePath: z.string().min(1, 'Source path is required'),
+    targetPath: z.string().min(1, 'Target path is required'),
+    sourceDbHost: z.string().min(1, 'Source DB host is required'),
+    sourceDbName: z.string().min(1, 'Source DB name is required'),
+    targetDbHost: z.string().min(1, 'Target DB host is required'),
+    targetDbName: z.string().min(1, 'Target DB name is required'),
+    cloneType: z.enum(['full', 'files', 'database']),
+});
+
+// Helper functions for validation
+function validateFilePaths(data: z.infer<typeof cloneSchema>, ctx: z.RefinementCtx) {
+    if (!data.sourcePath || data.sourcePath.trim() === '') {
+        ctx.addIssue({
+            code: "custom",
+            message: 'Source path is required',
+            path: ['sourcePath'],
+        });
+    }
+
+    if (!data.targetPath || data.targetPath.trim() === '') {
+        ctx.addIssue({
+            code: "custom",
+            message: 'Target path is required',
+            path: ['targetPath'],
+        });
+    }
+
+    if (data.sourcePath && data.targetPath && data.sourcePath === data.targetPath) {
+        ctx.addIssue({
+            code: "custom",
+            message: 'Source and target paths cannot be the same',
+            path: ['targetPath'],
+        });
+    }
+}
+
+function validateDatabase(data: z.infer<typeof cloneSchema>, ctx: z.RefinementCtx) {
+    if (!data.sourceDbName || data.sourceDbName.trim() === '') {
+        ctx.addIssue({
+            code: "custom",
+            message: 'Source database name is required',
+            path: ['sourceDbName'],
+        });
+    } else if (!/^\w+$/.test(data.sourceDbName)) {
+        ctx.addIssue({
+            code: "custom",
+            message: 'Database name can only contain letters, numbers, and underscores',
+            path: ['sourceDbName'],
+        });
+    }
+
+    if (!data.targetDbName || data.targetDbName.trim() === '') {
+        ctx.addIssue({
+            code: "custom",
+            message: 'Target database name is required',
+            path: ['targetDbName'],
+        });
+    } else if (!/^\w+$/.test(data.targetDbName)) {
+        ctx.addIssue({
+            code: "custom",
+            message: 'Database name can only contain letters, numbers, and underscores',
+            path: ['targetDbName'],
+        });
+    }
+
+    if (data.sourceDbName && data.targetDbName && data.sourceDbName === data.targetDbName) {
+        ctx.addIssue({
+            code: "custom",
+            message: 'Source and target database names cannot be the same',
+            path: ['targetDbName'],
+        });
+    }
+}
+
+// Updated superRefine with reduced complexity
+cloneSchema.superRefine((data, ctx) => {
+    const needsFiles = data.cloneType === 'full' || data.cloneType === 'files';
+    const needsDatabase = data.cloneType === 'full' || data.cloneType === 'database';
+
+    if (needsFiles) {
+        validateFilePaths(data, ctx);
+    }
+
+    if (needsDatabase) {
+        validateDatabase(data, ctx);
+    }
+});
+
+type CloneFormValues = z.infer<typeof cloneSchema>;
+
 export default function CloneIndex({ auth }: Readonly<CloneIndexProps>) {
     console.log(auth);
     const [isCloning, setIsCloning] = useState<boolean>(false);
     const [steps, setSteps] = useState<Step[]>([]);
     const [status, setStatus] = useState<Status>({ message: '', type: 'info' });
 
-    const { data, setData, processing } = useForm<CloneFormData>({
-        sourcePath: '',
-        targetPath: '',
-        sourceDbHost: 'localhost',
-        sourceDbName: '',
-        sourceDbUser: '',
-        sourceDbPass: '',
-        targetDbHost: 'localhost',
-        targetDbName: '',
-        targetDbUser: '',
-        targetDbPass: '',
-        cloneType: 'full',
-        newDomain: '',
+    const {
+        control,
+        handleSubmit,
+        watch,
+        formState: { errors, isSubmitting }
+    } = useForm<CloneFormValues>({
+        resolver: zodResolver(cloneSchema),
+        defaultValues: {
+            sourcePath: '',
+            targetPath: '',
+            sourceDbHost: '127.0.0.1',
+            sourceDbName: '',
+            targetDbHost: '127.0.0.1',
+            targetDbName: '',
+            cloneType: 'full',
+        },
+        mode: 'onChange'
     });
 
-    const handleSubmit = async (e: React.FormEvent<HTMLFormElement>): Promise<void> => {
-        e.preventDefault();
+    const cloneType = watch('cloneType');
+
+    const onSubmit = async (data: CloneFormValues): Promise<void> => {
         setIsCloning(true);
         setSteps([]);
-        setStatus({ message: 'Starting clone process...', type: 'info' });
-
+        toast.success("Starting cloning process...");
         try {
             const csrfToken = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.getAttribute('content');
 
@@ -59,7 +159,7 @@ export default function CloneIndex({ auth }: Readonly<CloneIndexProps>) {
             setStatus(result.status);
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
-            setStatus({ message: 'An error occurred: ' + errorMessage, type: 'error' });
+            toast.error('An error occurred: ' + errorMessage);
         } finally {
             setIsCloning(false);
         }
@@ -129,8 +229,8 @@ export default function CloneIndex({ auth }: Readonly<CloneIndexProps>) {
         }
     ];
 
-    const needsFiles = data.cloneType === 'full' || data.cloneType === 'files';
-    const needsDatabase = data.cloneType === 'full' || data.cloneType === 'database';
+    const needsFiles = cloneType === 'full' || cloneType === 'files';
+    const needsDatabase = cloneType === 'full' || cloneType === 'database';
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
@@ -147,48 +247,54 @@ export default function CloneIndex({ auth }: Readonly<CloneIndexProps>) {
                         {/* Main Form */}
                         <div className="lg:col-span-2 w-full">
                             <div className="w-full bg-white dark:bg-[#161615] shadow-sm border dark:shadow-[inset_0px_0px_0px_1px_#fffaed2d] rounded-xl overflow-hidden">
-                                <form onSubmit={handleSubmit} className="p-8 space-y-8 sm:space-x-8 w-full flex">
+                                <form onSubmit={handleSubmit(onSubmit)} className="p-8 space-y-8 sm:space-x-8 w-full flex">
                                     {/* Clone Type Selection */}
                                     <div>
                                         <h3 className="text-lg font-semibold text-gray-900 mb-4 dark:text-white">Clone Type</h3>
                                         <div className="grid grid-cols-1 gap-4 sm:w-sm">
                                             {cloneOptions.map((option) => (
-                                                <label
+                                                <Controller
                                                     key={option.value}
-                                                    className={`relative flex items-start p-4 border rounded-xl cursor-pointer hover:border-gray-200 transition-all duration-200 ${data.cloneType === option.value
-                                                        ? 'ring-opacity-20 border-gray-200'
-                                                        : ''
-                                                        }`}
-                                                >
-                                                    <Input
-                                                        type="radio"
-                                                        value={option.value}
-                                                        checked={data.cloneType === option.value}
-                                                        onChange={(e) => setData('cloneType', e.target.value as CloneFormData['cloneType'])}
-                                                        className="sr-only"
-                                                    />
-                                                    <div className={`flex-shrink-0 mr-4 p-2 rounded-lg ${data.cloneType === option.value ? 'bg-transparent text-white-600' : 'bg-transparent text-gray-500'
-                                                        }`}>
-                                                        {option.icon}
-                                                    </div>
-                                                    <div className="flex-1">
-                                                        <div className="flex items-center">
-                                                            <span className={`font-medium ${data.cloneType === option.value ? 'text-gray-900 dark:text-white' : 'text-gray-900 dark:text-white'
+                                                    name="cloneType"
+                                                    control={control}
+                                                    render={({ field }) => (
+                                                        <label
+                                                            className={`relative flex items-start p-4 border rounded-xl cursor-pointer hover:border-gray-200 transition-all duration-200 ${field.value === option.value
+                                                                ? 'ring-opacity-20 border-gray-200'
+                                                                : ''
+                                                                }`}
+                                                        >
+                                                            <input
+                                                                type="radio"
+                                                                value={option.value}
+                                                                checked={field.value === option.value}
+                                                                onChange={() => field.onChange(option.value)}
+                                                                className="sr-only"
+                                                            />
+                                                            <div className={`flex-shrink-0 mr-4 p-2 rounded-lg ${field.value === option.value ? 'bg-transparent text-white-600' : 'bg-transparent text-gray-500'
                                                                 }`}>
-                                                                {option.label}
-                                                            </span>
-                                                            {data.cloneType === option.value && (
-                                                                <svg className="ml-2 w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
-                                                                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                                                                </svg>
-                                                            )}
-                                                        </div>
-                                                        <p className={`mt-1 text-sm ${data.cloneType === option.value ? 'text-white' : 'text-gray-500'
-                                                            }`}>
-                                                            {option.desc}
-                                                        </p>
-                                                    </div>
-                                                </label>
+                                                                {option.icon}
+                                                            </div>
+                                                            <div className="flex-1">
+                                                                <div className="flex items-center">
+                                                                    <span className={`font-medium dark:text-white'
+                                                                        }`}>
+                                                                        {option.label}
+                                                                    </span>
+                                                                    {field.value === option.value && (
+                                                                        <svg className="ml-2 w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                                                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                                                                        </svg>
+                                                                    )}
+                                                                </div>
+                                                                <p className={`mt-1 text-sm ${field.value === option.value ? 'text-white' : 'text-gray-500'
+                                                                    }`}>
+                                                                    {option.desc}
+                                                                </p>
+                                                            </div>
+                                                        </label>
+                                                    )}
+                                                />
                                             ))}
                                         </div>
                                     </div>
@@ -205,38 +311,59 @@ export default function CloneIndex({ auth }: Readonly<CloneIndexProps>) {
                                                     <Label className="block text-sm font-medium mb-2">
                                                         Source Path *
                                                     </Label>
-                                                    <Input
-                                                        type="text"
-                                                        value={data.sourcePath}
-                                                        onChange={(e) => setData('sourcePath', e.target.value)}
-                                                        className=""
-                                                        placeholder="/path/to/wordpress"
-                                                        required
+                                                    <Controller
+                                                        name="sourcePath"
+                                                        control={control}
+                                                        render={({ field }) => (
+                                                            <Input
+                                                                {...field}
+                                                                type="text"
+                                                                className={errors.sourcePath ? 'border-red-500' : ''}
+                                                                placeholder="/path/to/wordpress"
+                                                            />
+                                                        )}
                                                     />
+                                                    {errors.sourcePath && (
+                                                        <p className="mt-1 text-sm text-red-400">{errors.sourcePath.message}</p>
+                                                    )}
                                                 </div>
                                             )}
 
                                             {needsDatabase && (
                                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                                     <div>
-                                                        <label className="block text-sm font-medium text-gray-700 mb-2">Database Host</label>
-                                                        <Input
-                                                            type="text"
-                                                            value={"localhost"}
-                                                            onChange={(e) => setData('sourceDbHost', e.target.value)}
-                                                            readOnly
-                                                            placeholder="localhost"
+                                                        <Label>Database Host</Label>
+                                                        <Controller
+                                                            name="sourceDbHost"
+                                                            control={control}
+                                                            render={({ field }) => (
+                                                                <Input
+                                                                    {...field}
+                                                                    className='mt-2'
+                                                                    type="text"
+                                                                    readOnly
+                                                                    placeholder="127.0.0.1"
+                                                                />
+                                                            )}
                                                         />
                                                     </div>
                                                     <div>
-                                                        <label className="block text-sm font-medium text-gray-700 mb-2">Database Name *</label>
-                                                        <Input
-                                                            type="text"
-                                                            value={data.sourceDbName}
-                                                            onChange={(e) => setData('sourceDbName', e.target.value)}
-                                                            placeholder="database_name"
-                                                            required
+                                                        <Label>Database Name *</Label>
+                                                        <Controller
+                                                            name="sourceDbName"
+                                                            control={control}
+                                                            render={({ field }) => (
+                                                                <Input
+                                                                    {...field}
+                                                                    className={`mt-2 ${errors.sourceDbName ? 'border-red-500' : ''}`}
+                                                                    type="text"
+                                                                    placeholder="database_name"
+                                                                />
+                                                            )}
                                                         />
+                                                        {errors.sourceDbName && (
+                                                            <p className="mt-1 text-sm text-red-400">{errors.sourceDbName.message}</p>
+                                                        )}
                                                     </div>
                                                 </div>
                                             )}
@@ -255,14 +382,21 @@ export default function CloneIndex({ auth }: Readonly<CloneIndexProps>) {
                                                     <Label>
                                                         Target Path *
                                                     </Label>
-                                                    <Input
-                                                        type="text"
-                                                        value={data.targetPath}
-                                                        onChange={(e) => setData('targetPath', e.target.value)}
-                                                        className="mt-2"
-                                                        placeholder="/path/to/new-wordpress"
-                                                        required
+                                                    <Controller
+                                                        name="targetPath"
+                                                        control={control}
+                                                        render={({ field }) => (
+                                                            <Input
+                                                                {...field}
+                                                                type="text"
+                                                                className={`mt-2 ${errors.targetPath ? 'border-red-500' : ''}`}
+                                                                placeholder="/path/to/new-wordpress"
+                                                            />
+                                                        )}
                                                     />
+                                                    {errors.targetPath && (
+                                                        <p className="mt-1 text-sm text-red-400">{errors.targetPath.message}</p>
+                                                    )}
                                                 </div>
                                             )}
 
@@ -270,45 +404,37 @@ export default function CloneIndex({ auth }: Readonly<CloneIndexProps>) {
                                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                                     <div>
                                                         <Label>Database Host</Label>
-                                                        <Input
-                                                            type="text"
-                                                            value={data.targetDbHost}
-                                                            onChange={(e) => setData('targetDbHost', e.target.value)}
-                                                            className="mt-2"
-                                                            placeholder="localhost"
+                                                        <Controller
+                                                            name="targetDbHost"
+                                                            control={control}
+                                                            render={({ field }) => (
+                                                                <Input
+                                                                    {...field}
+                                                                    readOnly
+                                                                    type="text"
+                                                                    className="mt-2"
+                                                                    placeholder="127.0.0.1"
+                                                                />
+                                                            )}
                                                         />
                                                     </div>
                                                     <div>
                                                         <Label>Database Name *</Label>
-                                                        <Input
-                                                            type="text"
-                                                            value={data.targetDbName}
-                                                            onChange={(e) => setData('targetDbName', e.target.value)}
-                                                            className="mt-2"
-                                                            placeholder="new_database_name"
-                                                            required
+                                                        <Controller
+                                                            name="targetDbName"
+                                                            control={control}
+                                                            render={({ field }) => (
+                                                                <Input
+                                                                    {...field}
+                                                                    type="text"
+                                                                    className={`mt-2 ${errors.targetDbName ? 'border-red-500' : ''}`}
+                                                                    placeholder="new_database_name"
+                                                                />
+                                                            )}
                                                         />
-                                                    </div>
-                                                    <div>
-                                                        <Label>Database User *</Label>
-                                                        <Input
-                                                            type="text"
-                                                            value={data.targetDbUser}
-                                                            onChange={(e) => setData('targetDbUser', e.target.value)}
-                                                            className="mt-2"
-                                                            placeholder="username"
-                                                            required
-                                                        />
-                                                    </div>
-                                                    <div>
-                                                        <Label>Database Password</Label>
-                                                        <Input
-                                                            type="password"
-                                                            value={data.targetDbPass}
-                                                            onChange={(e) => setData('targetDbPass', e.target.value)}
-                                                            className="mt-2"
-                                                            placeholder="••••••••"
-                                                        />
+                                                        {errors.targetDbName && (
+                                                            <p className="mt-1 text-sm text-red-400">{errors.targetDbName.message}</p>
+                                                        )}
                                                     </div>
                                                 </div>
                                             )}
@@ -319,7 +445,7 @@ export default function CloneIndex({ auth }: Readonly<CloneIndexProps>) {
                                     <div className='flex justify-end w-48'>
                                         <Button
                                             type="submit"
-                                            disabled={isCloning || processing}
+                                            disabled={isCloning || isSubmitting}
                                             className=""
                                         >
                                             {isCloning ? (
@@ -348,7 +474,7 @@ export default function CloneIndex({ auth }: Readonly<CloneIndexProps>) {
                         <div className="lg:col-span-1 space-y-6">
                             {/* Status Display */}
                             {status.message && (
-                                <div className={`border-2 rounded-xl p-4 ${getStatusColor(status.type)}`}>
+                                <div className={`border-2 rounded-xl p-4 mt-8 ${getStatusColor(status.type)}`}>
                                     <div className="flex items-start">
                                         <div className="flex-shrink-0">
                                             {getStatusIcon(status.type)}
@@ -370,8 +496,8 @@ export default function CloneIndex({ auth }: Readonly<CloneIndexProps>) {
                                         Progress
                                     </h3>
                                     <div className="space-y-3">
-                                        {steps.map((step: Step, index: number) => (
-                                            <div key={index} className="flex items-center p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                        {steps.map((step: Step) => (
+                                            <div key={step.step} className="flex items-center p-3 bg-gray-50 rounded-lg border border-gray-100">
                                                 <div className="flex-shrink-0 w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center mr-3">
                                                     <span className="text-sm font-semibold text-blue-700">{step.step}</span>
                                                 </div>

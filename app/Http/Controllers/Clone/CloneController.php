@@ -32,13 +32,8 @@ class CloneController extends Controller
             'targetPath' => self::NULLABLE_STRING,
             'sourceDbHost' => self::NULLABLE_STRING,
             'sourceDbName' => self::NULLABLE_STRING,
-            'sourceDbUser' => self::NULLABLE_STRING,
-            'sourceDbPass' => self::NULLABLE_STRING,
             'targetDbHost' => self::NULLABLE_STRING,
             'targetDbName' => self::NULLABLE_STRING,
-            'targetDbUser' => self::NULLABLE_STRING,
-            'targetDbPass' => self::NULLABLE_STRING,
-            'newDomain' => 'nullable|url',
             'cloneType' => 'required|in:full,files,database',
         ]);
 

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use Exception;
+use Illuminate\Support\Env;
 use Illuminate\Support\Facades\Log;
 use mysqli;
 use mysqli_sql_exception;
@@ -133,8 +134,8 @@ class CloneService
     {
         $conn = new mysqli(
             $config['targetDbHost'],
-            $config['targetDbUser'],
-            $config['targetDbPass']
+            Env::get('DB_USERNAME', 'root'),
+            Env::get('DB_PASSWORD', ''),
         );
 
         if ($conn->connect_error) {

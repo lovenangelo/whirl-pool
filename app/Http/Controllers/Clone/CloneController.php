@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Services\CloneService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Inertia\Inertia;
+use Inertia\Response;
 
 class CloneController extends Controller
 {
@@ -16,6 +18,11 @@ class CloneController extends Controller
     public function __construct(CloneService $cloneService)
     {
         $this->cloneService = $cloneService;
+    }
+
+    public function index(): Response
+    {
+        return Inertia::render('clone/index');
     }
 
     public function clone(Request $request): JsonResponse

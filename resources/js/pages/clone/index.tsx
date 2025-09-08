@@ -19,23 +19,12 @@ const breadcrumbs: BreadcrumbItem[] = [
     },
 ];
 
-// Validation schema
-const cloneSchema = z.object({
-    sourcePath: z.string().min(1, 'Source path is required'),
-    targetPath: z.string().min(1, 'Target path is required'),
-    sourceDbHost: z.string().min(1, 'Source DB host is required'),
-    sourceDbName: z.string().min(1, 'Source DB name is required'),
-    targetDbHost: z.string().min(1, 'Target DB host is required'),
-    targetDbName: z.string().min(1, 'Target DB name is required'),
-    cloneType: z.enum(['full', 'files', 'database']),
-});
-
 // Helper functions for validation
 function validateFilePaths(data: z.infer<typeof cloneSchema>, ctx: z.RefinementCtx) {
     if (!data.sourcePath || data.sourcePath.trim() === '') {
         ctx.addIssue({
             code: "custom",
-            message: 'Source path is required',
+            message: 'Source path is required for file operations',
             path: ['sourcePath'],
         });
     }
@@ -43,7 +32,7 @@ function validateFilePaths(data: z.infer<typeof cloneSchema>, ctx: z.RefinementC
     if (!data.targetPath || data.targetPath.trim() === '') {
         ctx.addIssue({
             code: "custom",
-            message: 'Target path is required',
+            message: 'Target path is required for file operations',
             path: ['targetPath'],
         });
     }
@@ -57,11 +46,20 @@ function validateFilePaths(data: z.infer<typeof cloneSchema>, ctx: z.RefinementC
     }
 }
 
-function validateDatabase(data: z.infer<typeof cloneSchema>, ctx: z.RefinementCtx) {
+function validateDatabaseFields(data: z.infer<typeof cloneSchema>, ctx: z.RefinementCtx) {
+    // Source database validation
+    if (!data.sourceDbHost || data.sourceDbHost.trim() === '') {
+        ctx.addIssue({
+            code: "custom",
+            message: 'Source database host is required for database operations',
+            path: ['sourceDbHost'],
+        });
+    }
+
     if (!data.sourceDbName || data.sourceDbName.trim() === '') {
         ctx.addIssue({
             code: "custom",
-            message: 'Source database name is required',
+            message: 'Source database name is required for database operations',
             path: ['sourceDbName'],
         });
     } else if (!/^\w+$/.test(data.sourceDbName)) {
@@ -72,10 +70,19 @@ function validateDatabase(data: z.infer<typeof cloneSchema>, ctx: z.RefinementCt
         });
     }
 
+    // Target database validation
+    if (!data.targetDbHost || data.targetDbHost.trim() === '') {
+        ctx.addIssue({
+            code: "custom",
+            message: 'Target database host is required for database operations',
+            path: ['targetDbHost'],
+        });
+    }
+
     if (!data.targetDbName || data.targetDbName.trim() === '') {
         ctx.addIssue({
             code: "custom",
-            message: 'Target database name is required',
+            message: 'Target database name is required for database operations',
             path: ['targetDbName'],
         });
     } else if (!/^\w+$/.test(data.targetDbName)) {
@@ -86,17 +93,29 @@ function validateDatabase(data: z.infer<typeof cloneSchema>, ctx: z.RefinementCt
         });
     }
 
-    if (data.sourceDbName && data.targetDbName && data.sourceDbName === data.targetDbName) {
+    // Check for same source and target database
+    if (data.sourceDbHost && data.targetDbHost &&
+        data.sourceDbName && data.targetDbName &&
+        data.sourceDbHost === data.targetDbHost &&
+        data.sourceDbName === data.targetDbName) {
         ctx.addIssue({
             code: "custom",
-            message: 'Source and target database names cannot be the same',
+            message: 'Source and target database cannot be the same',
             path: ['targetDbName'],
         });
     }
 }
 
-// Updated superRefine with reduced complexity
-cloneSchema.superRefine((data, ctx) => {
+// Updated validation schema with conditional requirements
+const cloneSchema = z.object({
+    sourcePath: z.string().optional(), // Make optional at base level
+    targetPath: z.string().optional(), // Make optional at base level
+    sourceDbHost: z.string().optional(), // Make optional at base level
+    sourceDbName: z.string().optional(), // Make optional at base level
+    targetDbHost: z.string().optional(), // Make optional at base level
+    targetDbName: z.string().optional(), // Make optional at base level
+    cloneType: z.enum(['full', 'files', 'database']),
+}).superRefine((data, ctx) => {
     const needsFiles = data.cloneType === 'full' || data.cloneType === 'files';
     const needsDatabase = data.cloneType === 'full' || data.cloneType === 'database';
 
@@ -105,7 +124,7 @@ cloneSchema.superRefine((data, ctx) => {
     }
 
     if (needsDatabase) {
-        validateDatabase(data, ctx);
+        validateDatabaseFields(data, ctx);
     }
 });
 
@@ -258,13 +277,13 @@ export default function CloneIndex({ auth }: Readonly<CloneIndexProps>) {
                                                     name="cloneType"
                                                     control={control}
                                                     render={({ field }) => (
-                                                        <label
-                                                            className={`relative flex items-start p-4 border rounded-xl cursor-pointer hover:border-gray-200 transition-all duration-200 ${field.value === option.value
+                                                        <Label
+                                                            className={`relative flex h-24 items-center p-4 border rounded-xl cursor-pointer hover:border-gray-200 transition-all duration-200 ${field.value === option.value
                                                                 ? 'ring-opacity-20 border-gray-200'
                                                                 : ''
                                                                 }`}
                                                         >
-                                                            <input
+                                                            <Input
                                                                 type="radio"
                                                                 value={option.value}
                                                                 checked={field.value === option.value}
@@ -287,12 +306,12 @@ export default function CloneIndex({ auth }: Readonly<CloneIndexProps>) {
                                                                         </svg>
                                                                     )}
                                                                 </div>
-                                                                <p className={`mt-1 text-sm ${field.value === option.value ? 'text-white' : 'text-gray-500'
+                                                                <p className={`mt-1 text-sm font-normal transition-all ${field.value === option.value ? 'text-white' : 'text-gray-500'
                                                                     }`}>
                                                                     {option.desc}
                                                                 </p>
                                                             </div>
-                                                        </label>
+                                                        </Label>
                                                     )}
                                                 />
                                             ))}

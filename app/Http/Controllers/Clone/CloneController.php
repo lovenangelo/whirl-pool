@@ -25,20 +25,27 @@ class CloneController extends Controller
         return Inertia::render('clone/index');
     }
 
-    public function clone(Request $request): JsonResponse
+    public function store(Request $request)
     {
-        $validated = $request->validate([
-            'sourcePath' => 'required|string',
-            'targetPath' => self::NULLABLE_STRING,
-            'sourceDbHost' => self::NULLABLE_STRING,
-            'sourceDbName' => self::NULLABLE_STRING,
-            'targetDbHost' => self::NULLABLE_STRING,
-            'targetDbName' => self::NULLABLE_STRING,
-            'cloneType' => 'required|in:full,files,database',
-        ]);
+        try {
+            $validated = $request->validate([
+                'sourcePath' => self::NULLABLE_STRING,
+                'targetPath' => self::NULLABLE_STRING,
+                'sourceDbHost' => self::NULLABLE_STRING,
+                'sourceDbName' => self::NULLABLE_STRING,
+                'targetDbHost' => self::NULLABLE_STRING,
+                'targetDbName' => self::NULLABLE_STRING,
+                'cloneType' => 'required|in:full,files,database',
+            ]);
 
-        $result = $this->cloneService->cloneWordPressSite($validated);
-
-        return response()->json($result);
+            $result = $this->cloneService->cloneWordPressSite($validated);
+            return Inertia::render('clone/index', [
+                'data' => $result,
+            ])->toResponse($request)->setStatusCode(200);
+        } catch (\Throwable $th) {
+            return Inertia::render('clone/index', [
+                'error' => $th->getMessage(),
+            ])->toResponse(request())->setStatusCode(500);
+        }
     }
 }

@@ -17,10 +17,10 @@ class CloneService
     {
         try {
             $this->validateConfig($config);
-
+            $sourcePath = isset($config['sourcePath']) ? rtrim($config['sourcePath'], '/') : Env::get('WHIRL_POOL_SOURCE_PATH', '/var/www/html');
             // Validate source directory
             $this->addStep(0, 'Validating source WordPress installation...');
-            if (!is_dir($config['sourcePath'])) {
+            if (!is_dir($sourcePath)) {
                 throw new mysqli_sql_exception("Source directory {$config['sourcePath']} does not exist");
             }
 
@@ -58,6 +58,7 @@ class CloneService
         }
 
         return [
+            'errors' => $this->status['type'] === 'error' ? [$this->status['message']] : [],
             'status' => $this->status,
             'steps' => $this->steps
         ];

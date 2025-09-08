@@ -39,4 +39,5 @@ export interface CloneOption {
     value: 'full' | 'files' | 'database';
     label: string;
     desc: string;
+    icon: React.JSX.Element;
 }

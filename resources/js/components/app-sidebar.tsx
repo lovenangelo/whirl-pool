@@ -5,7 +5,7 @@ import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, Sid
 import { dashboard } from '@/routes';
 import { type NavItem } from '@/types';
 import { Link } from '@inertiajs/react';
-import { BookOpen, Folder, LayoutGrid } from 'lucide-react';
+import { BookOpen, Copy, Folder, LayoutGrid } from 'lucide-react';
 import AppLogo from './app-logo';
 import clone from '@/routes/clone';
 
@@ -18,7 +18,7 @@ const mainNavItems: NavItem[] = [
     {
         title: 'Clone',
         href: clone.index.url(),
-        icon: LayoutGrid,
+        icon: Copy,
     }
 ];
 

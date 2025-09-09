@@ -16,49 +16,13 @@ class CloneService
     public function cloneWordPressSite(array $config): array
     {
         try {
-            $sourcePath = isset($config['sourcePath']) ? Env::get('WHIRL_POOL_SOURCE_PATH', '/var/www/html') . "/" . rtrim($config['sourcePath'], '/') : Env::get('WHIRL_POOL_SOURCE_PATH', '/var/www/html');
-            $targetPath = isset($config['sourcePath']) ? Env::get('WHIRL_POOL_SOURCE_PATH', '/var/www/html') . "/" . rtrim($config['targetPath'], '/') : Env::get('WHIRL_POOL_SOURCE_PATH', '/var/www/html');
-            $sourceDbUser = isset($config['sourceDbUser']) ? rtrim($config['sourceDbUser'], '/') : Env::get('WHIRL_POOL_SOURCE_DB_USERNAME');
-            $sourceDbPass = isset($config['sourceDbPass']) ? rtrim($config['sourceDbPass'], '/') : Env::get('WHIRL_POOL_SOURCE_DB_PASSWORD');
-            $targetDbUser = isset($config['targetDbUser']) ? rtrim($config['targetDbUser'], '/') : Env::get('WHIRL_POOL_SOURCE_DB_USERNAME');
-            $targetDbPass = isset($config['targetDbPass']) ? rtrim($config['targetDbPass'], '/') : Env::get('WHIRL_POOL_SOURCE_DB_PASSWORD');
-
-            $config['sourcePath'] = $sourcePath;
-            $config['sourceDbUser'] = $sourceDbUser;
-            $config['sourceDbPass'] = $sourceDbPass;
-            $config['targetDbUser'] = $targetDbUser;
-            $config['targetDbPass'] = $targetDbPass;
-            $config['targetPath'] = $targetPath;
+            $this->prepareConfig($config);
 
             $this->validateConfig($config);
-            if ($config['cloneType'] !== 'database') {
-                // Validate source directory
-                $this->addStep(0, 'Validating source WordPress installation...');
-                if (!is_dir($sourcePath)) {
-                    throw new mysqli_sql_exception("Source directory {$config['sourcePath']} does not exist");
-                }
-            }
 
-            // Handle file operations
-            if (in_array($config['cloneType'], ['full', 'files'])) {
-                $this->handleFileOperations($config);
-            }
+            $this->validateSourceDirectoryIfNeeded($config);
 
-            // Handle database operations
-            if (in_array($config['cloneType'], ['full', 'database'])) {
-                $this->handleDatabaseOperations($config);
-            }
-
-            // Handle WordPress configuration updates
-            if ($config['cloneType'] === 'full') {
-                $this->updateWordPressConfig($config);
-
-                if (!empty($config['newDomain'])) {
-                    $this->updateSiteUrls($config);
-                }
-
-                $this->setFilePermissions($config['targetPath']);
-            }
+            $this->processCloneType($config);
 
             $this->addStep(9, 'Verifying cloned installation...');
             $this->addStep(10, 'Clone completed successfully!');
@@ -77,6 +41,97 @@ class CloneService
             'status' => $this->status,
             'steps' => $this->steps
         ];
+    }
+
+    private function prepareConfig(array &$config): void
+    {
+        if ($config['cloneType'] !== 'database') {
+            $this->validatePaths($config);
+        }
+        $this->assignConfigDefaults($config);
+    }
+
+    private function validatePaths(array $config): void
+    {
+        $path = Env::get('WHIRL_POOL_SOURCE_PATH');
+        if ($path === null) {
+            throw new mysqli_sql_exception("Environment variable WHIRL_POOL_SOURCE_PATH is not set");
+        }
+
+        $source = $path . "/" . rtrim($config['sourcePath'], '/');
+        $target = $path . "/" . rtrim($config['targetPath'], '/');
+
+        if (isset($config['targetPath']) && $source === $target) {
+            throw new mysqli_sql_exception("Source and clone name cannot be the same");
+        }
+
+        if (!is_dir($source)) {
+            throw new mysqli_sql_exception("Source $source does not exist");
+        }
+
+        if (is_dir($target)) {
+            throw new mysqli_sql_exception("Clone name $target already exists");
+        }
+    }
+
+    private function assignConfigDefaults(array &$config): void
+    {
+        $sourcePath = isset($config['sourcePath'])
+            ? Env::get('WHIRL_POOL_SOURCE_PATH') . "/" . rtrim($config['sourcePath'], '/')
+            : Env::get('WHIRL_POOL_SOURCE_PATH', '/var/www/html');
+        $targetPath = isset($config['sourcePath'])
+            ? Env::get('WHIRL_POOL_SOURCE_PATH') . "/" . rtrim($config['targetPath'], '/')
+            : Env::get('WHIRL_POOL_SOURCE_PATH', '/var/www/html');
+        $sourceDbUser = isset($config['sourceDbUser'])
+            ? rtrim($config['sourceDbUser'], '/')
+            : Env::get('WHIRL_POOL_SOURCE_DB_USERNAME');
+        $sourceDbPass = isset($config['sourceDbPass'])
+            ? rtrim($config['sourceDbPass'], '/')
+            : Env::get('WHIRL_POOL_SOURCE_DB_PASSWORD');
+        $targetDbUser = isset($config['targetDbUser'])
+            ? rtrim($config['targetDbUser'], '/')
+            : Env::get('WHIRL_POOL_SOURCE_DB_USERNAME');
+        $targetDbPass = isset($config['targetDbPass'])
+            ? rtrim($config['targetDbPass'], '/')
+            : Env::get('WHIRL_POOL_SOURCE_DB_PASSWORD');
+
+        $config['sourcePath'] = $sourcePath;
+        $config['sourceDbUser'] = $sourceDbUser;
+        $config['sourceDbPass'] = $sourceDbPass;
+        $config['targetDbUser'] = $targetDbUser;
+        $config['targetDbPass'] = $targetDbPass;
+        $config['targetPath'] = $targetPath;
+    }
+
+    private function validateSourceDirectoryIfNeeded(array $config): void
+    {
+        if ($config['cloneType'] !== 'database') {
+            $this->addStep(0, 'Validating source WordPress installation...');
+            if (!is_dir($config['sourcePath'])) {
+                throw new mysqli_sql_exception("Source directory {$config['sourcePath']} does not exist");
+            }
+        }
+    }
+
+    private function processCloneType(array $config): void
+    {
+        if (in_array($config['cloneType'], ['full', 'files'])) {
+            $this->handleFileOperations($config);
+        }
+
+        if (in_array($config['cloneType'], ['full', 'database'])) {
+            $this->handleDatabaseOperations($config);
+        }
+
+        if ($config['cloneType'] === 'full') {
+            $this->updateWordPressConfig($config);
+
+            if (!empty($config['newDomain'])) {
+                $this->updateSiteUrls($config);
+            }
+
+            $this->setFilePermissions($config['targetPath']);
+        }
     }
 
     private function validateConfig(array $config): void

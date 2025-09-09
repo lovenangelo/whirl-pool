@@ -314,11 +314,11 @@ class CloneService
 
     private function processCloneType(array $config): void
     {
-        if (in_array($config['cloneType'], ['full', 'files'])) {
+        if (in_array($config['cloneType'], ['files', 'full'])) {
             $this->handleFileOperations($config);
         }
 
-        if (in_array($config['cloneType'], ['full', 'database'])) {
+        if (in_array($config['cloneType'], ['database', 'full'])) {
             $this->handleDatabaseOperations($config);
         }
 

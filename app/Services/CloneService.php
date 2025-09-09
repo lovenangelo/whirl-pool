@@ -16,7 +16,8 @@ class CloneService
     public function cloneWordPressSite(array $config): array
     {
         try {
-            $sourcePath = isset($config['sourcePath']) ? rtrim($config['sourcePath'], '/') : Env::get('WHIRL_POOL_SOURCE_PATH', '/var/www/html');
+            $sourcePath = isset($config['sourcePath']) ? Env::get('WHIRL_POOL_SOURCE_PATH', '/var/www/html') . "/" . rtrim($config['sourcePath'], '/') : Env::get('WHIRL_POOL_SOURCE_PATH', '/var/www/html');
+            $targetPath = isset($config['sourcePath']) ? Env::get('WHIRL_POOL_SOURCE_PATH', '/var/www/html') . "/" . rtrim($config['targetPath'], '/') : Env::get('WHIRL_POOL_SOURCE_PATH', '/var/www/html');
             $sourceDbUser = isset($config['sourceDbUser']) ? rtrim($config['sourceDbUser'], '/') : Env::get('WHIRL_POOL_SOURCE_DB_USERNAME');
             $sourceDbPass = isset($config['sourceDbPass']) ? rtrim($config['sourceDbPass'], '/') : Env::get('WHIRL_POOL_SOURCE_DB_PASSWORD');
             $targetDbUser = isset($config['targetDbUser']) ? rtrim($config['targetDbUser'], '/') : Env::get('WHIRL_POOL_SOURCE_DB_USERNAME');
@@ -27,6 +28,7 @@ class CloneService
             $config['sourceDbPass'] = $sourceDbPass;
             $config['targetDbUser'] = $targetDbUser;
             $config['targetDbPass'] = $targetDbPass;
+            $config['targetPath'] = $targetPath;
 
             $this->validateConfig($config);
             if ($config['cloneType'] !== 'database') {

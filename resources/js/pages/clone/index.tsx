@@ -286,14 +286,14 @@ export default function CloneIndex({ auth }: Readonly<CloneIndexProps>) {
                                             {needsFiles && (
                                                 <div className='text-white'>
                                                     <Label className="block text-sm font-medium mb-2">
-                                                        Source Path *
+                                                        Source Website *
                                                     </Label>
                                                     <Input
                                                         type="text"
                                                         value={data.sourcePath}
                                                         onChange={(e) => setData('sourcePath', e.target.value)}
                                                         className={errors.sourcePath ? 'border-red-500' : ''}
-                                                        placeholder="/path/to/wordpress"
+                                                        placeholder="wordpress"
                                                     />
                                                     {errors.sourcePath && (
                                                         <p className="mt-1 text-sm text-red-400">{errors.sourcePath}</p>
@@ -342,14 +342,14 @@ export default function CloneIndex({ auth }: Readonly<CloneIndexProps>) {
                                             {needsFiles && (
                                                 <div>
                                                     <Label>
-                                                        Target Path *
+                                                        New Website Name *
                                                     </Label>
                                                     <Input
                                                         type="text"
                                                         value={data.targetPath}
                                                         onChange={(e) => setData('targetPath', e.target.value)}
                                                         className={`mt-2 ${errors.targetPath ? 'border-red-500' : ''}`}
-                                                        placeholder="/path/to/new-wordpress"
+                                                        placeholder="wordpress_clone"
                                                     />
                                                     {errors.targetPath && (
                                                         <p className="mt-1 text-sm text-red-400">{errors.targetPath}</p>

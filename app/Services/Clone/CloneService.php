@@ -1,10 +1,12 @@
 <?php
 
-namespace App\Services;
+namespace App\Services\Clone;
 
+use App\Services\Clone\WordpressSetup as CloneWordpressSetup;
 use Exception;
 use Illuminate\Support\Env;
 use Illuminate\Support\Facades\Log;
+use InvalidArgumentException;
 use mysqli;
 use mysqli_sql_exception;
 
@@ -13,6 +15,13 @@ class CloneService
     private array $steps = [];
     private array $status = ['message' => '', 'type' => 'info'];
 
+    private $wordpressSetup;
+
+    public function __construct()
+    {
+        $this->wordpressSetup = new CloneWordpressSetup();
+    }
+
     public function cloneWordPressSite(array $config): array
     {
         try {
@@ -20,7 +29,7 @@ class CloneService
 
             $this->validateConfig($config);
 
-            $this->validateSourceDirectoryIfNeeded($config);
+            $this->validateSource($config);
 
             $this->processCloneType($config);
 
@@ -45,10 +54,199 @@ class CloneService
 
     private function prepareConfig(array &$config): void
     {
-        if ($config['cloneType'] !== 'database') {
-            $this->validatePaths($config);
-        }
+        $this->validateDatabase($config);
+        $this->validatePaths($config);
         $this->assignConfigDefaults($config);
+    }
+
+    /**
+     * Validates database configuration and checks database existence/availability
+     *
+     * @param array $config Database configuration array containing:
+     *                     - targetDbName: Name of the target database
+     *                     - sourceDbName: Name of the source database
+     *                     - sourceDbHost: Source database host
+     *                     - sourceDbUser: Source database username (optional)
+     *                     - sourceDbPass: Source database password (optional)
+     * @throws InvalidArgumentException If configuration is invalid
+     * @throws mysqli_sql_exception If database validation fails
+     */
+    private function validateDatabase(array $config): void
+    {
+        // Validate required configuration keys
+        $this->validateConfigStructure($config);
+
+        // Validate database names
+        $this->validateDatabaseName($config['targetDbName'], 'Target');
+        $this->validateDatabaseName($config['sourceDbName'], 'Source');
+
+        // Check database existence and accessibility
+        $this->checkDatabaseExistence($config);
+    }
+
+    /**
+     * Validates the structure of the configuration array
+     *
+     * @param array $config Configuration array
+     * @throws InvalidArgumentException If required keys are missing
+     */
+    private function validateConfigStructure(array $config): void
+    {
+        $requiredKeys = ['targetDbName', 'sourceDbName', 'sourceDbHost'];
+
+        foreach ($requiredKeys as $key) {
+            if (!isset($config[$key]) || !is_string($config[$key])) {
+                throw new InvalidArgumentException("Missing or invalid required configuration key: '$key'");
+            }
+        }
+    }
+
+    /**
+     * Validates a database name against MySQL naming conventions and security rules
+     *
+     * @param string $dbName Database name to validate
+     * @param string $type Type of database (for error messages)
+     * @throws mysqli_sql_exception If database name is invalid
+     */
+    private function validateDatabaseName(string $dbName, string $type): void
+    {
+        // Check if empty
+        if (empty(trim($dbName))) {
+            throw new mysqli_sql_exception("$type database name cannot be empty.");
+        }
+
+        // Check length (MySQL limit is 64 characters)
+        if (strlen($dbName) > 64) {
+            throw new mysqli_sql_exception("$type database name '$dbName' exceeds the maximum length of 64 characters.");
+        }
+
+        // Check for valid characters (alphanumeric, underscores, and dollar signs are allowed in MySQL)
+        if (!preg_match('/^[a-zA-Z0-9_$]+$/', $dbName)) {
+            throw new mysqli_sql_exception("$type database name '$dbName' contains invalid characters. Only alphanumeric characters, underscores, and dollar signs are allowed.");
+        }
+
+        // Check if starts with a number (not allowed in MySQL)
+        if (preg_match('/^\d/', $dbName)) {
+            throw new mysqli_sql_exception("$type database name '$dbName' cannot start with a number.");
+        }
+
+        // Check for reserved/system database names
+        $reservedNames = ['mysql', 'information_schema', 'performance_schema', 'sys'];
+        if (in_array(strtolower($dbName), $reservedNames)) {
+            throw new mysqli_sql_exception("$type database name '$dbName' is reserved and cannot be used.");
+        }
+
+        // Additional security check for SQL injection patterns
+        $dangerousPatterns = [
+            '/--/',           // SQL comments
+            '/;/',            // Statement terminators
+            '/\/\*/',         // Multi-line comments start
+            '/\*\//',         // Multi-line comments end
+            '/\b(drop|delete|truncate|alter)\b/i', // Dangerous SQL keywords
+        ];
+
+        foreach ($dangerousPatterns as $pattern) {
+            if (preg_match($pattern, $dbName)) {
+                throw new mysqli_sql_exception("$type database name '$dbName' contains potentially dangerous patterns.");
+            }
+        }
+    }
+
+    /**
+     * Checks the existence and accessibility of source and target databases
+     *
+     * @param array $config Database configuration
+     * @throws mysqli_sql_exception If database checks fail
+     */
+    private function checkDatabaseExistence(array $config): void
+    {
+        $connection = null;
+
+        try {
+            // Create connection
+            $connection = $this->createDatabaseConnection($config);
+
+            // Check if target database already exists
+            if ($this->databaseExists($connection, $config['targetDbName'])) {
+                throw new mysqli_sql_exception("Target database '{$config['targetDbName']}' already exists.");
+            }
+
+            // Check if source database exists and is accessible
+            if (!$this->databaseExists($connection, $config['sourceDbName'])) {
+                throw new mysqli_sql_exception("Source database '{$config['sourceDbName']}' does not exist or is not accessible.");
+            }
+        } catch (mysqli_sql_exception $e) {
+            throw $e;
+        } catch (Exception $e) {
+            throw new mysqli_sql_exception("Database validation failed: " . $e->getMessage());
+        } finally {
+            // Ensure connection is closed
+            if ($connection instanceof mysqli) {
+                $connection->close();
+            }
+        }
+    }
+
+    /**
+     * Creates a MySQL database connection
+     *
+     * @param array $config Database configuration
+     * @return mysqli Database connection
+     * @throws mysqli_sql_exception If connection fails
+     */
+    private function createDatabaseConnection(array $config): mysqli
+    {
+        $host = $config['sourceDbHost'];
+        $username = $config['sourceDbUser'] ?? Env::get("WHIRL_POOL_SOURCE_DB_USERNAME");
+        $password = $config['sourceDbPass'] ?? Env::get("WHIRL_POOL_SOURCE_DB_PASSWORD");
+
+        // Validate credentials
+        if (empty($username) || empty($password)) {
+            throw new mysqli_sql_exception("Database credentials are missing or invalid.");
+        }
+
+        // Enable error reporting
+        mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
+
+        try {
+            // Create connection (note: we don't specify a database here for initial connection)
+            $connection = new mysqli($host, $username, $password);
+
+            // Set charset to prevent character set confusion attacks
+            $connection->set_charset("utf8mb4");
+
+            return $connection;
+        } catch (mysqli_sql_exception $e) {
+            throw new mysqli_sql_exception("Failed to connect to database server: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Checks if a database exists
+     *
+     * @param mysqli $connection Database connection
+     * @param string $dbName Database name to check
+     * @return bool True if database exists, false otherwise
+     * @throws mysqli_sql_exception If query fails
+     */
+    private function databaseExists(mysqli $connection, string $dbName): bool
+    {
+        // Use prepared statement to prevent SQL injection
+        $stmt = $connection->prepare("SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = ?");
+
+        if (!$stmt) {
+            throw new mysqli_sql_exception("Failed to prepare database existence check query: " . $connection->error);
+        }
+
+        try {
+            $stmt->bind_param("s", $dbName);
+            $stmt->execute();
+            $result = $stmt->get_result();
+
+            return $result->num_rows > 0;
+        } finally {
+            $stmt->close();
+        }
     }
 
     private function validatePaths(array $config): void
@@ -103,13 +301,14 @@ class CloneService
         $config['targetPath'] = $targetPath;
     }
 
-    private function validateSourceDirectoryIfNeeded(array $config): void
+    private function validateSource(array $config): void
     {
         if ($config['cloneType'] !== 'database') {
             $this->addStep(0, 'Validating source WordPress installation...');
             if (!is_dir($config['sourcePath'])) {
                 throw new mysqli_sql_exception("Source directory {$config['sourcePath']} does not exist");
             }
+        } else {
         }
     }
 
@@ -124,13 +323,7 @@ class CloneService
         }
 
         if ($config['cloneType'] === 'full') {
-            $this->updateWordPressConfig($config);
-
-            if (!empty($config['newDomain'])) {
-                $this->updateSiteUrls($config);
-            }
-
-            $this->setFilePermissions($config['targetPath']);
+            $this->wordpressSetup->setup($config, $config['targetPath'], $config['targetDbName']);
         }
     }
 
@@ -279,81 +472,6 @@ class CloneService
         if ($returnVar !== 0) {
             throw new mysqli_sql_exception("Failed to import database");
         }
-    }
-
-    private function updateWordPressConfig(array $config): void
-    {
-        $this->addStep(6, 'Updating wp-config.php...');
-
-        $wpConfigPath = rtrim($config['targetPath'], '/') . '/wp-config.php';
-
-        if (!file_exists($wpConfigPath)) {
-            throw new mysqli_sql_exception("wp-config.php not found at $wpConfigPath");
-        }
-
-        $content = file_get_contents($wpConfigPath);
-
-        $replacements = [
-            'DB_NAME' => $config['targetDbName'],
-            'DB_USER' => $config['targetDbUser'],
-            'DB_PASSWORD' => $config['targetDbPass'],
-            'DB_HOST' => $config['targetDbHost'],
-        ];
-
-        foreach ($replacements as $constant => $value) {
-            $pattern = "/define\s*\(\s*'$constant'\s*,.*?\);/";
-            $replacement = "define('$constant', '$value');";
-            $content = preg_replace($pattern, $replacement, $content);
-        }
-
-        file_put_contents($wpConfigPath, $content);
-    }
-
-    private function updateSiteUrls(array $config): void
-    {
-        $this->addStep(7, 'Updating site URLs...');
-
-        $conn = new mysqli(
-            $config['targetDbHost'],
-            $config['targetDbUser'],
-            $config['targetDbPass'],
-            $config['targetDbName']
-        );
-
-        if ($conn->connect_error) {
-            throw new mysqli_sql_exception("Target DB connection failed: " . $conn->connect_error);
-        }
-
-        // Get old domain
-        $result = $conn->query("SELECT option_value FROM wp_options WHERE option_name='home' LIMIT 1");
-        $oldDomain = $result ? $result->fetch_row()[0] : '';
-
-        if ($oldDomain) {
-            $newDomain = $conn->real_escape_string($config['newDomain']);
-            $oldDomainEscaped = $conn->real_escape_string($oldDomain);
-
-            // Update WordPress options
-            $conn->query("UPDATE wp_options SET option_value='$newDomain' WHERE option_name='home'");
-            $conn->query("UPDATE wp_options SET option_value='$newDomain' WHERE option_name='siteurl'");
-
-            // Update content
-            $conn->query("UPDATE wp_posts SET post_content=REPLACE(post_content, '$oldDomainEscaped', '$newDomain')");
-            $conn->query("UPDATE wp_comments SET comment_content=REPLACE(comment_content, '$oldDomainEscaped', '$newDomain')");
-        }
-
-        $conn->close();
-    }
-
-    private function setFilePermissions(string $targetPath): void
-    {
-        $this->addStep(8, 'Setting proper file permissions...');
-
-        $targetPathEscaped = escapeshellarg($targetPath);
-
-        exec("chown -R www-data:www-data $targetPathEscaped");
-        exec("find $targetPathEscaped -type d -exec chmod 755 {} \\;");
-        exec("find $targetPathEscaped -type f -exec chmod 644 {} \\;");
-        exec("chmod 600 $targetPathEscaped/wp-config.php");
     }
 
     private function addStep(int $step, string $message): void

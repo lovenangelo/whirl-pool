@@ -18,7 +18,7 @@ class CloneService
         try {
             $sourcePath = isset($config['sourcePath']) ? rtrim($config['sourcePath'], '/') : Env::get('WHIRL_POOL_SOURCE_PATH', '/var/www/html');
             $sourceDbUser = isset($config['sourceDbUser']) ? rtrim($config['sourceDbUser'], '/') : Env::get('WHIRL_POOL_SOURCE_DB_USERNAME');
-            $sourceDbPass = isset($config['sourcePath']) ? rtrim($config['sourceDbPassword'], '/') : Env::get('WHIRL_POOL_SOURCE_DB_PASSWORD');
+            $sourceDbPass = isset($config['sourceDbPass']) ? rtrim($config['sourceDbPass'], '/') : Env::get('WHIRL_POOL_SOURCE_DB_PASSWORD');
             $targetDbUser = isset($config['targetDbUser']) ? rtrim($config['targetDbUser'], '/') : Env::get('WHIRL_POOL_SOURCE_DB_USERNAME');
             $targetDbPass = isset($config['targetDbPass']) ? rtrim($config['targetDbPass'], '/') : Env::get('WHIRL_POOL_SOURCE_DB_PASSWORD');
 
@@ -29,10 +29,12 @@ class CloneService
             $config['targetDbPass'] = $targetDbPass;
 
             $this->validateConfig($config);
-            // Validate source directory
-            $this->addStep(0, 'Validating source WordPress installation...');
-            if (!is_dir($sourcePath)) {
-                throw new mysqli_sql_exception("Source directory {$config['sourcePath']} does not exist");
+            if ($config['cloneType'] !== 'database') {
+                // Validate source directory
+                $this->addStep(0, 'Validating source WordPress installation...');
+                if (!is_dir($sourcePath)) {
+                    throw new mysqli_sql_exception("Source directory {$config['sourcePath']} does not exist");
+                }
             }
 
             // Handle file operations
@@ -128,13 +130,14 @@ class CloneService
         // Check if source database exists
         $this->addStep(3, 'Validating source database connection...');
         $this->validateDatabaseConnection($config['sourceDbHost'], $config['sourceDbName'], $config['sourceDbUser'], $config['sourceDbPass']);
-        // Create target database
-        $this->addStep(4, 'Creating target database...');
-        $this->createTargetDatabase($config);
 
         // Backup and restore database
-        $this->addStep(5, 'Creating database backup...');
+        $this->addStep(4, 'Creating database backup...');
         $backupFile = $this->createDatabaseBackup($config);
+
+        // Create target database
+        $this->addStep(5, 'Creating target database...');
+        $this->createTargetDatabase($config);
 
         $this->addStep(6, 'Importing database to target...');
         $this->importDatabase($config, $backupFile);
@@ -188,18 +191,19 @@ class CloneService
 
     private function createDatabaseBackup(array $config): string
     {
-        $backupFile = storage_path("app/wp_clone_backup_" . time() . ".sql");
-
         $sourceDbHost = escapeshellarg($config['sourceDbHost']);
         $sourceDbUser = escapeshellarg($config['sourceDbUser']);
-        $sourceDbPass = escapeshellarg($config['sourceDbPass']);
         $sourceDbName = escapeshellarg($config['sourceDbName']);
+        $backupFile = storage_path("app/private/wp_clone_backup_" . $sourceDbName . time() . ".sql");
 
-        $command = "mysqldump -h $sourceDbHost -u $sourceDbUser -p$sourceDbPass $sourceDbName > $backupFile";
+        $command = "MYSQL_PWD=" . escapeshellarg($config['sourceDbPass']) .
+            " mysqldump -h $sourceDbHost -u $sourceDbUser $sourceDbName > $backupFile 2>&1";
+
         exec($command, $output, $returnVar);
 
         if ($returnVar !== 0) {
-            throw new mysqli_sql_exception("Failed to create database backup");
+            $errorMessage = implode("\n", $output);
+            throw new mysqli_sql_exception("Failed to create database backup: " . $errorMessage);
         }
 
         return $backupFile;

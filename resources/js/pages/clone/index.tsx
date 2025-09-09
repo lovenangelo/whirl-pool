@@ -158,12 +158,12 @@ export default function CloneIndex({ auth }: Readonly<CloneIndexProps>) {
 
             setIsCloning(true);
             setSteps([]);
-            toast.success("Starting cloning process...");
 
             post('/clone', {
                 preserveState: true,
                 preserveScroll: true,
                 onSuccess: (page) => {
+                    console.log(page);
                     setSteps(Array.isArray(page.props.steps) ? page.props.steps : []);
                     setIsCloning(false);
                     toast.success('Cloning completed successfully!');

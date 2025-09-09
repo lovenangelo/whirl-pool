@@ -39,13 +39,18 @@ class CloneController extends Controller
             ]);
 
             $result = $this->cloneService->cloneWordPressSite($validated);
+            if ($result['status']['type'] === 'error') {
+                return back()->withErrors([
+                    $result['errors']
+                ]);
+            }
             return Inertia::render('clone/index', [
                 'data' => $result,
             ])->toResponse($request)->setStatusCode(200);
         } catch (\Throwable $th) {
-            return Inertia::render('clone/index', [
+            return back()->withErrors([
                 'error' => $th->getMessage(),
-            ])->toResponse(request())->setStatusCode(500);
+            ]);
         }
     }
 }

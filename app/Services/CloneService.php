@@ -16,8 +16,19 @@ class CloneService
     public function cloneWordPressSite(array $config): array
     {
         try {
-            $this->validateConfig($config);
             $sourcePath = isset($config['sourcePath']) ? rtrim($config['sourcePath'], '/') : Env::get('WHIRL_POOL_SOURCE_PATH', '/var/www/html');
+            $sourceDbUser = isset($config['sourceDbUser']) ? rtrim($config['sourceDbUser'], '/') : Env::get('WHIRL_POOL_SOURCE_DB_USERNAME');
+            $sourceDbPass = isset($config['sourcePath']) ? rtrim($config['sourceDbPassword'], '/') : Env::get('WHIRL_POOL_SOURCE_DB_PASSWORD');
+            $targetDbUser = isset($config['targetDbUser']) ? rtrim($config['targetDbUser'], '/') : Env::get('WHIRL_POOL_SOURCE_DB_USERNAME');
+            $targetDbPass = isset($config['targetDbPass']) ? rtrim($config['targetDbPass'], '/') : Env::get('WHIRL_POOL_SOURCE_DB_PASSWORD');
+
+            $config['sourcePath'] = $sourcePath;
+            $config['sourceDbUser'] = $sourceDbUser;
+            $config['sourceDbPass'] = $sourceDbPass;
+            $config['targetDbUser'] = $targetDbUser;
+            $config['targetDbPass'] = $targetDbPass;
+
+            $this->validateConfig($config);
             // Validate source directory
             $this->addStep(0, 'Validating source WordPress installation...');
             if (!is_dir($sourcePath)) {
@@ -114,21 +125,35 @@ class CloneService
 
     private function handleDatabaseOperations(array $config): void
     {
+        // Check if source database exists
+        $this->addStep(3, 'Validating source database connection...');
+        $this->validateDatabaseConnection($config['sourceDbHost'], $config['sourceDbName'], $config['sourceDbUser'], $config['sourceDbPass']);
         // Create target database
         $this->addStep(4, 'Creating target database...');
         $this->createTargetDatabase($config);
 
         // Backup and restore database
-        $this->addStep(3, 'Creating database backup...');
+        $this->addStep(5, 'Creating database backup...');
         $backupFile = $this->createDatabaseBackup($config);
 
-        $this->addStep(5, 'Importing database to target...');
+        $this->addStep(6, 'Importing database to target...');
         $this->importDatabase($config, $backupFile);
 
         // Clean up backup file
         if (file_exists($backupFile)) {
             unlink($backupFile);
         }
+    }
+
+    private function validateDatabaseConnection(string $host, string $dbName, string $user, string $pass): void
+    {
+        $conn = new mysqli($host, $user, $pass, $dbName);
+
+        if ($conn->connect_error) {
+            throw new mysqli_sql_exception("Connection failed: " . $conn->connect_error);
+        }
+
+        $conn->close();
     }
 
     private function createTargetDatabase(array $config): void
@@ -144,6 +169,15 @@ class CloneService
         }
 
         $targetDbName = $conn->real_escape_string($config['targetDbName']);
+
+        $query = "SHOW DATABASES LIKE '$targetDbName'";
+
+        $result = $conn->query($query);
+
+        if ($result && $result->num_rows > 0) {
+            $error = "Database '$targetDbName' exists";
+            throw new mysqli_sql_exception("Failed to create target database: " . $error);
+        }
 
         if (!$conn->query("CREATE DATABASE IF NOT EXISTS `$targetDbName`")) {
             throw new mysqli_sql_exception("Failed to create target database: " . $conn->error);
